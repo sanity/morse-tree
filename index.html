@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Morse Tree</title>
+<meta name="description" content="Learn Morse code by watching your taps light up a path through the Morse tree.">
+<style>
+  :root {
+    --bg: #0f1317;
+    --panel: #172029;
+    --panel-edge: #2e3b48;
+    --trace: #5d7183;
+    --node: #1d2833;
+    --lit: #ffb22e;
+    --lit-text: #1a1206;
+    --bad: #ff5c5c;
+    --word: #6fb3ff;
+    --text: #e6ebef;
+    --muted: #8d9aa6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+    padding: 16px; gap: 14px; }
+  .w { width: min(100%, 560px); }
+  h1 { font-size: 1.4rem; font-weight: 650; margin: 4px 0 0; letter-spacing: 0.02em; }
+  h1 span { color: var(--lit); }
+
+  .panel { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 14px;
+    padding: 8px 6px 4px; }
+  svg { width: 100%; height: auto; display: block; user-select: none; }
+  .edge { stroke: var(--trace); stroke-width: 2.5; fill: none; stroke-linejoin: round; transition: stroke 0.08s; }
+  .edge.lit { stroke: var(--lit); stroke-width: 3.5; }
+  .node { cursor: pointer; }
+  .node .shape { fill: var(--node); stroke: var(--trace); stroke-width: 2; transition: fill 0.08s; }
+  .node .label { fill: var(--text); font-size: 14px; font-weight: 600; text-anchor: middle;
+    dominant-baseline: central; pointer-events: none; }
+  .node.lit .shape { fill: var(--lit); stroke: var(--lit); filter: url(#glow); }
+  .node.lit .label { fill: var(--lit-text); }
+  .node.final .shape { stroke: #fff; stroke-width: 3; }
+  .node.empty { cursor: default; }
+  .node.empty .shape { fill: none; stroke-dasharray: 3 3; opacity: 0.45; }
+  .node.empty.lit .shape { fill: var(--bad); stroke: var(--bad); opacity: 1; filter: none; }
+  .root .shape { fill: var(--node); stroke: var(--trace); stroke-width: 2; }
+  .root.lit .shape { fill: var(--lit); stroke: var(--lit); }
+  .legend { fill: var(--muted); font-size: 13px; }
+
+  .readout { display: flex; align-items: center; gap: 10px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .code { min-width: 5.5em; font-size: 1.5rem; color: var(--lit); letter-spacing: 0.15em; }
+  .code.bad { color: var(--bad); }
+  .text { flex: 1; min-height: 2.4em; padding: 6px 10px; border-radius: 8px; background: #080a0d;
+    border: 1px solid var(--panel-edge); font-size: 1.3rem; word-break: break-all; white-space: pre-wrap; }
+  .text .cursor { display: inline-block; width: 0.55em; border-bottom: 2px solid var(--muted);
+    animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .gapbar { height: 6px; border-radius: 3px; background: #080a0d; overflow: hidden; margin-top: -8px; }
+  .gapbar div { height: 100%; width: 0; background: var(--lit); }
+  .gapbar div.word { background: var(--word); }
+  .gaplabel { font-size: 0.8rem; color: var(--muted); margin-top: -10px; min-height: 1.1em; }
+
+  .key { height: 96px; border-radius: 16px; border: 2px solid var(--panel-edge);
+    background: linear-gradient(#24313d, #172029); color: var(--text); font-size: 1.1rem;
+    letter-spacing: 0.1em; touch-action: none; user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none; cursor: pointer; }
+  .key.down { background: linear-gradient(#11181f, #1f2a35); border-color: var(--lit); color: var(--lit); }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row button { flex: 1; min-width: 64px; padding: 10px; border-radius: 10px; border: 1px solid var(--panel-edge);
+    background: var(--panel); color: var(--text); font-size: 1rem; cursor: pointer; touch-action: manipulation; }
+  .row button:active { background: #22303c; }
+  .settings { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px;
+    align-items: center; font-size: 0.9rem; color: var(--muted); }
+  .settings input[type=range] { width: 100%; }
+  .settings input:disabled { opacity: 0.45; }
+  .settings .val { font-family: ui-monospace, monospace; min-width: 5.5em; text-align: right; }
+  .wpm { color: var(--lit); font-weight: 600; }
+  .help { font-size: 0.85rem; color: var(--muted); line-height: 1.55; }
+  .help kbd { background: #222c36; border: 1px solid #3a4754; border-radius: 4px; padding: 0 5px; font-size: 0.8rem; }
+  .credit { font-size: 0.75rem; color: #66727d; margin-top: -4px; }
+</style>
+</head>
+<body>
+  <h1 class="w">Morse <span>Tree</span></h1>
+
+  <div class="panel w">
+    <svg id="tree" viewBox="0 0 480 344" aria-label="Morse code tree">
+      <defs>
+        <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="3.5" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <text class="legend" x="14" y="22">◀ dot ·</text>
+      <text class="legend" x="466" y="22" text-anchor="end">— dash ▶</text>
+      <g id="edges"></g>
+      <g id="nodes"></g>
+    </svg>
+  </div>
+
+  <div class="readout w">
+    <div id="code" class="code">&nbsp;</div>
+    <div id="text" class="text"><span class="cursor"></span></div>
+  </div>
+  <div class="gapbar w"><div id="gapbar"></div></div>
+  <div id="gaplabel" class="gaplabel w">Tap the key to start a letter</div>
+
+  <button id="key" class="key w" aria-label="Morse key: tap for dot, hold for dash">TAP · HOLD —</button>
+
+  <div class="row w">
+    <button id="dotBtn" aria-label="Dot">·</button>
+    <button id="dashBtn" aria-label="Dash">—</button>
+    <button id="nextBtn">next letter</button>
+    <button id="spaceBtn">space</button>
+    <button id="backBtn" aria-label="Backspace">⌫</button>
+    <button id="clearBtn">clear</button>
+  </div>
+
+  <div class="settings w">
+    <label for="auto">Auto speed</label>
+    <span><input id="auto" type="checkbox" checked> <span id="wpm" class="wpm"></span></span>
+    <button id="resetSpeed" style="font-size:0.8rem;padding:3px 8px;border-radius:6px;border:1px solid var(--panel-edge);background:var(--panel);color:var(--muted);cursor:pointer">reset</button>
+    <label for="speed">Dash if held ≥</label>
+    <input id="speed" type="range" min="40" max="500" step="5" value="250">
+    <span id="speedVal" class="val"></span>
+    <label for="gap">Letter ends after</label>
+    <input id="gap" type="range" min="100" max="2500" step="25" value="900">
+    <span id="gapVal" class="val"></span>
+    <label for="sound">Sound</label>
+    <input id="sound" type="checkbox" checked style="justify-self:start">
+    <span></span>
+  </div>
+
+  <p class="help w">
+    Tap the key for a dot, hold it for a dash. Starting from the top, every dot takes you down the left
+    branch and every dash down the right, and the lights follow your path. <b>To start a new letter, just
+    pause</b>: when the amber bar runs out, the letter you landed on is typed and your next tap starts again
+    from the top. Keep pausing until the blue bar also runs out to add a space between words (or press
+    <b>space</b>). Press <b>next letter</b> (<kbd>Enter</kbd>) to end a letter immediately.
+    With <b>auto speed</b> on, the timing learns from your keying, so it keeps up as you get faster.
+    Keyboard: <kbd>Space</kbd> is the key, <kbd>.</kbd> / <kbd>-</kbd> (or <kbd>←</kbd> / <kbd>→</kbd>)
+    enter a dot or dash directly, <kbd>Backspace</kbd> deletes. Click any letter to see and hear its code.
+  </p>
+  <p class="credit w">Inspired by a handheld Morse trainer card made by nux Modellbau.</p>
+
+<script>
+(() => {
+  // ---------- tree layout: classic binary tree, dot = left, dash = right ----------
+  const LETTERS = {
+    '.':'E', '-':'T',
+    '..':'I', '.-':'A', '-.':'N', '--':'M',
+    '...':'S', '..-':'U', '.-.':'R', '.--':'W', '-..':'D', '-.-':'K', '--.':'G', '---':'O',
+    '....':'H', '...-':'V', '..-.':'F', '.-..':'L', '.--.':'P', '.---':'J',
+    '-...':'B', '-..-':'X', '-.-.':'C', '-.--':'Y', '--..':'Z', '--.-':'Q',
+  };
+  const DEPTH = 4, LEAF_W = 30, X0 = 15, Y0 = 48, ROW_H = 68;
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const edgesG = document.getElementById('edges');
+  const nodesG = document.getElementById('nodes');
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    parent.appendChild(e);
+    return e;
+  }
+  function pos(code) {
+    const d = code.length;
+    const span = 2 ** (DEPTH - d);
+    let b = 0;
+    for (const c of code) b = b * 2 + (c === '-' ? 1 : 0);
+    return { x: X0 + LEAF_W * (b * span + (span - 1) / 2), y: Y0 + d * ROW_H };
+  }
+
+  const nodes = new Map();  // code -> {code, letter, x, y, g, edge}
+  const all = [''];
+  for (let i = 0; i < all.length; i++) {
+    const c = all[i];
+    if (c.length < DEPTH) all.push(c + '.', c + '-');
+  }
+  for (const code of all) {
+    const { x, y } = pos(code);
+    const n = { code, letter: LETTERS[code] || null, x, y };
+    nodes.set(code, n);
+    if (code) {
+      const p = nodes.get(code.slice(0, -1));
+      const mid = (p.y + y) / 2;
+      n.edge = el('path', { class: 'edge', d: `M${p.x} ${p.y} V${mid} H${x} V${y}` }, edgesG);
+    }
+  }
+  for (const n of nodes.values()) {
+    if (!n.code) {
+      n.g = el('g', { class: 'root' }, nodesG);
+      el('circle', { class: 'shape', cx: n.x, cy: n.y, r: 8 }, n.g);
+      continue;
+    }
+    const cls = 'node' + (n.letter ? '' : ' empty');
+    n.g = el('g', { class: cls }, nodesG);
+    if (n.code.endsWith('.')) {
+      el('circle', { class: 'shape', cx: n.x, cy: n.y, r: 12 }, n.g);
+    } else {
+      el('rect', { class: 'shape', x: n.x - 13, y: n.y - 10, width: 26, height: 20, rx: 3 }, n.g);
+    }
+    if (n.letter) {
+      el('text', { class: 'label', x: n.x, y: n.y + 1 }, n.g).textContent = n.letter;
+      el('title', {}, n.g).textContent = `${n.letter}  ${pretty(n.code)}`;
+      n.g.addEventListener('click', () => playLetter(n.code));
+    }
+  }
+
+  // ---------- display ----------
+  const codeEl = document.getElementById('code');
+  const textEl = document.getElementById('text');
+  let text = '';
+
+  function pretty(code) { return code.replace(/\./g, '·').replace(/-/g, '—'); }
+
+  function showPath(code, final) {
+    for (const n of nodes.values()) {
+      const on = code.length > 0 && code.startsWith(n.code);
+      n.g.classList.toggle('lit', on);
+      if (n.edge) n.edge.classList.toggle('lit', on);
+      n.g.classList.toggle('final', !!final && n.code === code);
+    }
+    const valid = code === '' || !!LETTERS[code];
+    codeEl.textContent = code ? pretty(code) : ' ';
+    codeEl.classList.toggle('bad', !valid);
+  }
+
+  function renderText() {
+    textEl.textContent = text;
+    const c = document.createElement('span');
+    c.className = 'cursor';
+    textEl.appendChild(c);
+  }
+
+  // ---------- sound ----------
+  let audio = null, gain = null;
+  const soundBox = document.getElementById('sound');
+  function ensureAudio() {
+    if (audio) return;
+    audio = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audio.createOscillator();
+    gain = audio.createGain();
+    osc.frequency.value = 650;
+    gain.gain.value = 0;
+    osc.connect(gain).connect(audio.destination);
+    osc.start();
+  }
+  function toneOn() {
+    if (!soundBox.checked) return;
+    ensureAudio();
+    if (audio.state === 'suspended') audio.resume();
+    gain.gain.setTargetAtTime(0.25, audio.currentTime, 0.004);
+  }
+  function toneOff() {
+    if (gain) gain.gain.setTargetAtTime(0, audio.currentTime, 0.004);
+  }
+
+  // ---------- timing ----------
+  // Manual mode uses the sliders. Auto mode learns from the operator's own keying, the way
+  // software Morse decoders do: recent key-hold times are split into two groups (dots and
+  // dashes) and the dot/dash boundary sits between them. The letter being keyed is
+  // re-read whenever the boundary moves, so an early misread corrects itself.
+  const speed = document.getElementById('speed');
+  const gap = document.getElementById('gap');
+  const autoBox = document.getElementById('auto');
+  const wpmEl = document.getElementById('wpm');
+  const DEFAULT = { dot: 125, dash: 500, intra: 450 };   // dash boundary 250 ms, letter gap 900 ms
+  const est = { ...DEFAULT };
+  const MIN_UNIT = 20, MAX_UNIT = 400;     // 60 WPM .. 3 WPM
+  const FAST_UNIT = 80;                    // above 15 WPM, letter boundaries come from gap lengths
+  const holds = [];                        // recent key-hold times, ms
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  function unit() { return clamp((est.dot + est.dash / 3) / 2, MIN_UNIT, MAX_UNIT); }
+  function fast() { return autoBox.checked && unit() < FAST_UNIT; }
+  function dashThreshold() { return autoBox.checked ? Math.sqrt(est.dot * est.dash) : +speed.value; }
+  function letterGap() {
+    if (!autoBox.checked) return +gap.value;
+    // A letter gap is 3 units against 1 inside a letter. Stay well above the operator's own
+    // inside-letter pauses so a hesitant beginner isn't cut off mid-letter.
+    return clamp(Math.max(3 * unit(), 2 * est.intra), 100, 2500);
+  }
+  function wordWait(lg) {
+    // a word gap is 7 units; call it a space once 5 units of silence have passed
+    return fast() ? Math.max(5 * unit() - lg, 0.6 * lg) : 1.5 * lg;
+  }
+
+  // Best split of the values into a low and a high group (in log space); geometric means.
+  function twoGroups(values) {
+    const v = values.map(Math.log).sort((a, b) => a - b);
+    let best = null;
+    for (let i = 1; i < v.length; i++) {
+      const lo = v.slice(0, i), hi = v.slice(i);
+      const m1 = lo.reduce((a, b) => a + b) / lo.length, m2 = hi.reduce((a, b) => a + b) / hi.length;
+      const sse = lo.reduce((a, b) => a + (b - m1) ** 2, 0) + hi.reduce((a, b) => a + (b - m2) ** 2, 0);
+      if (!best || sse < best.sse) best = { sse, lo: Math.exp(m1), hi: Math.exp(m2) };
+    }
+    return best;
+  }
+
+  function learnHold(ms) {
+    if (!autoBox.checked) return;
+    holds.push(clamp(ms, 10, 3000));
+    if (holds.length > 20) holds.shift();
+    const g = holds.length >= 2 ? twoGroups(holds) : null;
+    if (g && g.hi / g.lo >= 1.8) {
+      est.dot = g.lo; est.dash = g.hi;          // both dots and dashes seen recently
+    } else {
+      const m = Math.exp(holds.reduce((a, b) => a + Math.log(b), 0) / holds.length);
+      if (m < dashThreshold()) { est.dot = m; if (est.dash < 2 * m) est.dash = 3 * m; }
+      else { est.dash = m; if (est.dot > m / 2) est.dot = m / 3; }
+    }
+    est.dot = clamp(est.dot, MIN_UNIT * 0.6, MAX_UNIT * 1.5);
+    est.dash = clamp(est.dash, est.dot * 1.8, MAX_UNIT * 5);
+    saveSettings();
+  }
+  function learnGap(ms) {
+    if (!autoBox.checked) return;
+    est.intra += 0.25 * (clamp(ms, MIN_UNIT * 0.6, 1250) - est.intra);
+    saveSettings();
+  }
+
+  function updateSettingsUI() {
+    const auto = autoBox.checked;
+    speed.disabled = auto;
+    gap.disabled = auto;
+    if (auto) {
+      speed.value = Math.round(dashThreshold());
+      gap.value = Math.round(letterGap());
+    }
+    document.getElementById('speedVal').textContent = Math.round(dashThreshold()) + ' ms';
+    document.getElementById('gapVal').textContent = Math.round(letterGap()) + ' ms';
+    wpmEl.textContent = auto ? `≈ ${Math.round(1200 / unit())} WPM` : '';
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem('morse-tree-v2', JSON.stringify({
+        s: speed.value, g: gap.value, a: soundBox.checked, auto: autoBox.checked, est,
+      }));
+    } catch (_) {}
+    updateSettingsUI();
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem('morse-tree-v2') || 'null');
+    if (saved) {
+      speed.value = saved.s; gap.value = saved.g; soundBox.checked = saved.a;
+      autoBox.checked = saved.auto !== false;
+      if (saved.est) Object.assign(est, saved.est);
+    }
+  } catch (_) {}
+  speed.addEventListener('input', saveSettings);
+  gap.addEventListener('input', saveSettings);
+  soundBox.addEventListener('change', saveSettings);
+  autoBox.addEventListener('change', saveSettings);   // turning auto off leaves the learned values on the sliders
+  document.getElementById('resetSpeed').addEventListener('click', () => {
+    Object.assign(est, DEFAULT);
+    holds.length = 0;
+    speed.value = 250; gap.value = 900;
+    saveSettings();
+  });
+  updateSettingsUI();
+
+  // ---------- keying ----------
+  const gapBar = document.getElementById('gapbar');
+  const gapLabel = document.getElementById('gaplabel');
+  function runBar(ms, word) {
+    gapBar.classList.toggle('word', !!word);
+    gapBar.style.transition = 'none';
+    gapBar.style.width = '100%';
+    gapBar.getBoundingClientRect();
+    gapBar.style.transition = `width ${ms}ms linear`;
+    gapBar.style.width = '0';
+  }
+  function stopBar() { gapBar.style.transition = 'none'; gapBar.style.width = '0'; }
+
+  // The letter being keyed: one entry per element. `held` is null for the dot/dash buttons,
+  // which carry no timing. `gap` is the silence before this element (null for the first).
+  let run = [];
+  let seq = '';
+  let finished = false;   // last letter typed; its lights stay on until the next press
+  let downAt = null;
+  let upAt = null;        // last key release inside the current letter
+  let lastRelease = null; // last key release, letter finished or not
+  let pendingGap = null;
+  let letterTimer = null, wordTimer = null;
+  let playing = 0;        // token to cancel click-to-play animations
+
+  function symOf(e) { return e.held == null ? e.sym : (e.held >= dashThreshold() ? '-' : '.'); }
+
+  function commit(code) {
+    text += LETTERS[code] || '?';
+    renderText();
+  }
+
+  function startInput() {
+    playing++;
+    clearTimeout(letterTimer);
+    clearTimeout(wordTimer);
+    stopBar();
+    if (finished) { run = []; seq = ''; finished = false; upAt = null; showPath(''); }
+  }
+
+  function addElement(e) {
+    run.push(e);
+    // Fast keying: a gap longer than 2.5 units inside the run was really a letter gap,
+    // so everything before it is a finished letter.
+    if (fast()) {
+      const limit = 2.5 * unit();
+      let cut = -1;
+      run.forEach((x, i) => { if (i > 0 && x.gap != null && x.gap > limit) cut = i; });
+      if (cut > 0) {
+        let start = 0;
+        for (let i = 1; i <= cut; i++) {
+          if (run[i].gap != null && run[i].gap > limit) {
+            commit(run.slice(start, i).map(symOf).join(''));
+            if (run[i].gap > 5 * unit()) { text += ' '; renderText(); }
+            start = i;
+          }
+        }
+        run = run.slice(cut);
+        run[0].gap = null;
+      }
+    }
+    if (run.length > 1 && run[run.length - 1].gap != null) learnGap(run[run.length - 1].gap);
+    seq = run.map(symOf).join('');
+    showPath(seq);
+    const g = letterGap();
+    letterTimer = setTimeout(finishLetter, g);
+    runBar(g);
+    gapLabel.textContent = 'Keep keying this letter, or pause until the bar empties';
+  }
+
+  function finishLetter() {
+    clearTimeout(letterTimer);
+    stopBar();
+    upAt = null;
+    if (!seq || finished) return;
+    seq = run.map(symOf).join('');
+    commit(seq);
+    showPath(seq, true);
+    finished = true;
+    const letter = LETTERS[seq] || '?';
+    gapLabel.textContent = `Got ${letter}. Tap to start the next letter, or wait for the blue bar to add a space`;
+    const w = wordWait(letterGap());
+    runBar(w, true);
+    wordTimer = setTimeout(() => {
+      stopBar();
+      if (text && !text.endsWith(' ')) { text += ' '; renderText(); gapLabel.textContent = 'Space added. Tap to start the next word'; }
+    }, w);
+  }
+
+  function keyDown() {
+    if (downAt !== null) return;
+    const now = performance.now();
+    pendingGap = (upAt !== null && !finished) ? now - upAt : null;
+    // Fast keying can outrun the space timer; a word gap is 7 units, so count the silence.
+    if (finished && fast() && lastRelease !== null && now - lastRelease > 5 * unit()
+        && text && !text.endsWith(' ')) { text += ' '; renderText(); }
+    startInput();
+    downAt = now;
+    keyBtn.classList.add('down');
+    toneOn();
+  }
+  function keyUp() {
+    if (downAt === null) return;
+    const now = performance.now();
+    const held = now - downAt;
+    downAt = null;
+    keyBtn.classList.remove('down');
+    toneOff();
+    learnHold(held);
+    upAt = now;
+    lastRelease = now;
+    addElement({ held, gap: pendingGap });
+  }
+
+  const keyBtn = document.getElementById('key');
+  keyBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    keyBtn.setPointerCapture(e.pointerId);
+    keyDown();
+  });
+  keyBtn.addEventListener('pointerup', keyUp);
+  keyBtn.addEventListener('pointercancel', keyUp);
+  keyBtn.addEventListener('contextmenu', e => e.preventDefault());
+
+  function directSymbol(sym) {
+    startInput();
+    upAt = null;
+    toneOn();
+    setTimeout(toneOff, sym === '.' ? 80 : 240);
+    addElement({ held: null, sym, gap: null });
+  }
+  document.getElementById('dotBtn').addEventListener('click', () => directSymbol('.'));
+  document.getElementById('dashBtn').addEventListener('click', () => directSymbol('-'));
+  document.getElementById('nextBtn').addEventListener('click', () => finishLetter());
+  document.getElementById('spaceBtn').addEventListener('click', () => {
+    finishLetter(); clearTimeout(wordTimer); stopBar();
+    if (text && !text.endsWith(' ')) { text += ' '; renderText(); }
+    gapLabel.textContent = 'Space added. Tap to start the next word';
+  });
+  function backspace() {
+    startInput();
+    if (seq && !finished) { run = []; seq = ''; upAt = null; showPath(''); return; }
+    text = text.replace(/ ?.$/, ''); renderText();
+  }
+  document.getElementById('backBtn').addEventListener('click', backspace);
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    startInput(); run = []; seq = ''; upAt = null; text = ''; showPath(''); renderText();
+    gapLabel.textContent = 'Tap the key to start a letter';
+  });
+
+  window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' && e.target.type === 'range') return;
+    if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) keyDown(); }
+    else if (e.repeat) return;
+    else if (e.key === '.' || e.key === 'ArrowLeft') { e.preventDefault(); directSymbol('.'); }
+    else if (e.key === '-' || e.key === 'ArrowRight') { e.preventDefault(); directSymbol('-'); }
+    else if (e.key === 'Backspace') { e.preventDefault(); backspace(); }
+    else if (e.key === 'Enter') { e.preventDefault(); finishLetter(); }
+  });
+  window.addEventListener('keyup', e => { if (e.code === 'Space') { e.preventDefault(); keyUp(); } });
+  window.addEventListener('blur', keyUp);
+
+  // ---------- click a letter to play it ----------
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function playLetter(code) {
+    startInput();
+    run = []; seq = ''; finished = false; upAt = null; showPath('');
+    const token = ++playing;
+    const u = Math.max(70, Math.min(150, unit()));
+    await sleep(150);
+    for (let i = 0; i < code.length; i++) {
+      if (token !== playing) return;
+      showPath(code.slice(0, i + 1));
+      toneOn();
+      await sleep(code[i] === '.' ? u : u * 3);
+      toneOff();
+      await sleep(u * 1.5);
+    }
+    if (token !== playing) return;
+    showPath(code, true);
+    run = [...code].map(sym => ({ held: null, sym, gap: null })); seq = code; finished = true;
+    gapLabel.textContent = `${LETTERS[code]} is ${pretty(code)}`;
+  }
+
+  renderText();
+})();
+</script>
+</body>
+</html>
